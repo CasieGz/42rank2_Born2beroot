@@ -55,6 +55,8 @@ I chose **Debian** (latest stable, not testing/unstable).
 | Difficulty | Easier for beginners, huge docs | Closer to enterprise RHEL, more complex |
 | Release model | Stable, conservative | RHEL-compatible, longer enterprise cycle |
 
+**Rocky Linux in one sentence:** a free community rebuild of **RHEL** (Red Hat Enterprise Linux, a paid “enterprise” distro). Same tools and behaviour as RHEL, without the support contract. **DNF** is Rocky’s package manager (like `apt`). **SELinux** is Rocky’s MAC (like AppArmor).
+
 **Why Debian for this project**
 
 - The subject itself recommends Debian if you are new to sysadmin.
@@ -83,6 +85,8 @@ I chose **Debian** (latest stable, not testing/unstable).
 
 - `root`: local console only; **SSH root login forbidden**
 - `casgarna`: belongs to `user42` and `sudo`
+
+`sudo` is the group that may run admin commands. **`user42` is only required by the subject**; it does not add extra rights by itself.
 
 **Partitions:** at least **two encrypted LVM partitions**. Sizes are chosen so the system boots and runs without wasting disk. Encrypted LVM means: physical disk → encrypted volume → LVM volume group → logical volumes (`/`, `/home`, swap, …). You unlock with a passphrase at boot.
 
@@ -127,6 +131,8 @@ SELinux asks: “does this *type* have permission to talk to that *type*?”
 
 Both must be **active when the VM starts**. Default policy: deny incoming, allow outgoing, except the ports you explicitly open.
 
+**UFW is a frontend for iptables/nftables:** the kernel really filters packets with iptables (or nftables). Those rules are long and easy to get wrong. UFW is a simpler layer: `ufw allow 4242` becomes the real kernel rule for you. You do not write iptables by hand.
+
 #### VirtualBox vs UTM
 
 | | VirtualBox | UTM |
@@ -165,7 +171,10 @@ Short explanations of the terms used in this project (useful for the defense).
 | **`dnf`** | Rocky/RHEL package manager (successor of `yum`). Installs `.rpm` packages, resolves dependencies. |
 | **UFW** | Uncomplicated Firewall (Debian). Simple allow/deny wrapper around `iptables`/`nftables`. This project: only **4242/tcp** open. |
 | **firewalld** | Rocky’s firewall daemon. Uses **zones** (public, drop, …) and services. Same job as UFW: block everything except what you allow. |
-| **iptables / nftables** | The actual kernel packet filters. UFW and firewalld are friendlier frontends on top of them. |
+| **iptables / nftables** | The actual kernel packet filters. UFW and firewalld are friendlier **frontends** on top of them: you type a simple rule, they write the kernel rule. |
+| **NAT / port forwarding** | VirtualBox default network: the guest (often `10.0.2.15`) is not a real LAN IP. The host connects via **localhost** and a forwarded port (host 4242 → guest 4242). |
+| **SSH key pair** | Private key stays on your PC, public key on the server. Login proves you have the private key; it never travels on the wire. Optional here (password is allowed). |
+| **`ucredit=-1`** | PAM credit: a **negative** number means that class is **required** (at least one uppercase). Same idea for `lcredit` / `dcredit`. |
 | **SSH** | Secure Shell: encrypted remote login. Here: port **4242**, **no root login**. Client: `ssh user@ip -p 4242`. |
 | **OpenSSH** | The SSH server/client used on Debian (`sshd`). Config: `/etc/ssh/sshd_config`. |
 | **sudo** | Run one command as another user (usually root) without logging in as root. Config in `/etc/sudoers` and `/etc/sudoers.d/`. |
@@ -257,6 +266,17 @@ Ignore `127.0.0.1` (localhost). The VM address is often `10.0.2.15` (VirtualBox 
 ssh casgarna@127.0.0.1 -p 4242    # 127.0.0.1 = your Mac, forwarded into the VM
 ```
 
+**`localhost` / `127.0.0.1` with NAT** means the **host PC**. VirtualBox forwards a host port into guest **4242**. SSH inside the VM stays on 4242. Only if **host** port 4242 is already taken, forward a free host port (example `2222`) → guest `4242` and connect with that host port. That is a host/VirtualBox setting, not a change inside Debian.
+
+If SSH complains that the host key changed after you change the forwarded port:
+
+```bash
+ssh-keygen -R "[127.0.0.1]:4242"
+ssh-keygen -R "[localhost]:2222"
+```
+
+**Password vs SSH key:** the subject allows either. A key pair is a **private** key (stays on your machine) and a **public** key (on the server). Login proves you hold the private key; the private key is never sent. Stronger than a guessable password. This project can use a normal password.
+
 On the host you can also try: `ping <VM_IP>` or VirtualBox → Machine → Session Information.
 
 Root over SSH must fail. During defense a **new account** is created and SSH is tested with it.
@@ -278,7 +298,29 @@ sudo nano /etc/security/pwquality.conf   # minlen, ucredit, maxrepeat, difok, ..
 dpkg -l | grep libpam-pwquality          # package installed?
 ```
 
-Typical `pwquality` settings: `minlen=10`, `ucredit=-1`, `lcredit=-1`, `dcredit=-1`, `maxrepeat=3`, `usercheck=1`, `difok=7`, `enforce_for_root`. (`difok` does **not** apply to root, as in the subject.)
+Typical `pwquality` settings: `minlen=10`, `ucredit=-1`, `lcredit=-1`, `dcredit=-1`, `maxrepeat=3`, `usercheck=1`, `difok=7`, `enforce_for_root`.
+
+The subject says **`difok` does not apply to root**. `enforce_for_root` still makes length/classes apply to root (required). If both `difok=7` and `enforce_for_root` are set, root may also be forced to change 7 characters; that is **stricter** than the subject, which is usually fine.
+
+A **negative** credit (`ucredit=-1`) means “at least one of that class is **required**”. Positive credits are optional bonuses toward `minlen` (man `pam_pwquality`). Example PAM line:
+
+```
+password requisite pam_pwquality.so retry=3 minlen=10 ucredit=-1 lcredit=-1 dcredit=-1 maxrepeat=3 usercheck=1 difok=7 enforce_for_root
+```
+
+| Option | Meaning |
+|---|---|
+| `retry=3` | give up after 3 bad new passwords |
+| `minlen=10` | at least 10 characters |
+| `ucredit=-1` | at least 1 uppercase |
+| `lcredit=-1` | at least 1 lowercase |
+| `dcredit=-1` | at least 1 digit |
+| `maxrepeat=3` | no 4 identical characters in a row |
+| `usercheck=1` | must not contain the username |
+| `difok=7` | at least 7 characters not in the old password (not for root) |
+| `enforce_for_root` | complexity also for root |
+
+`/etc/login.defs` aging (`PASS_MAX_DAYS` / `MIN` / `WARN`) is used **when an account is created**. Debian `login.defs(5)`: changes there do **not** update existing accounts. Those values live in `/etc/shadow`. For `root` and `casgarna` you apply them with `chage`:
 
 | Rule | Value | Where |
 |---|---|---|
@@ -298,6 +340,8 @@ After the policy files are in place, **all existing passwords** (including root)
 passwd                  # change your own password
 sudo passwd root        # change root
 sudo chage -l casgarna  # show aging for a user
+sudo chage -M 30 -m 2 -W 7 casgarna   # max / min / warn, if login.defs was edited later
+sudo chage -M 30 -m 2 -W 7 root
 ```
 
 **Why this policy (defense: “because the subject says so” is not enough)**
@@ -336,6 +380,22 @@ sudo ls -l /var/log/sudo/             # sudo I/O logs must exist
 - **`requiretty`** (must have a real TTY)
 - **restricted `secure_path`**, e.g.  
   `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin`
+
+Example block (edit only with `visudo`; put it in `/etc/sudoers.d/`):
+
+```
+Defaults        passwd_tries=3
+Defaults        badpass_message="Wrong password."
+Defaults        logfile="/var/log/sudo/sudo.log"
+Defaults        log_input, log_output
+Defaults        iolog_dir="/var/log/sudo"
+Defaults        requiretty
+Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
+```
+
+`log_input` / `log_output` record **that sudo command**: what was typed on stdin and what the command printed, not the whole SSH login. Files go under `/var/log/sudo/` (`iolog_dir`). `secure_path` stops sudo from running a fake `ls` from your home. `requiretty` needs a real terminal. Create the log dir if needed: `sudo mkdir -p /var/log/sudo`.
+
+This block is the **subject’s rules**. During defense you open **your** file (`sudo visudo -f /etc/sudoers.d/...` or `sudo visudo`), not this README copy.
 
 **What sudo is for (defense):** you stay a normal user and elevate **one command** instead of logging in as root all day. Example: `sudo apt update` vs `su -` (full root shell). Logs show who did what. Restricted `secure_path` stops a fake `ls` in your home from running as root. `requiretty` blocks sudo from some detached scripts. Limited tries slow brute force.
 
@@ -477,9 +537,17 @@ ls -l /path/to/monitoring.sh     # must be executable: chmod +x
 Example (every 10 minutes, and `@reboot`):
 
 ```cron
-*/10 * * * * /path/to/monitoring.sh
-@reboot /path/to/monitoring.sh
+*/10 * * * * /usr/local/bin/monitoring.sh
+@reboot /usr/local/bin/monitoring.sh
 ```
+
+Cron has **five time fields**, then the command: **minute hour day-of-month month weekday**.
+
+- `*/10 * * * *` = every 10 minutes
+- `*/1 * * * *` or `* * * * *` = every minute (evaluation live test)
+- `@reboot` = once when the machine starts
+
+Put the script in a fixed path (often `/usr/local/bin/monitoring.sh`) and `sudo chmod +x` it. Root crontab: `sudo crontab -e`.
 
 **Interrupt during evaluation (without modifying the script):** `sudo crontab -e`, comment the two lines with `#`, save. Or `sudo crontab -r` (only if that is acceptable in the eval). The script file itself stays unchanged.
 
