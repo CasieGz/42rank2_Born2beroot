@@ -87,7 +87,7 @@ A **new** evaluation user is created later with `sudo adduser …` (PAM then enf
 <details>
 <summary>3. SSH on 4242, no root login</summary>
 
-Subject: SSH on **4242**, **no root over SSH**. Do **not** install Oh My Zsh / zsh — the eval expects bash.
+**SSH** = encrypted remote terminal (see [SSH](#ssh)). Subject: listen on **4242**, **no root over SSH**. Do **not** install Oh My Zsh / zsh — the eval expects bash.
 
 ```bash
 sudo apt update
@@ -147,13 +147,13 @@ exit
 
 Inside the VM, `who` / `tty`: **`pts/0`** is the SSH session; **`tty1`** is the VirtualBox console. `whoami` is only the username.
 
-If **host port 4242 is already taken** (common on 42 cluster PCs), map **host 4243 → guest 4242**. In the VM, SSH is still 4242 (`sshd_config`, `ufw`, `ss`). From the Mac:
+If **host port 4242 is already taken** (common on 42 cluster PCs), map **host 4243 → guest 4242**. That is only VirtualBox **forwarding** (translation). Debian still listens on **4242**. From the Mac:
 
 ```bash
 ssh casgarna@127.0.0.1 -p 4243
 ```
 
-To reach a VM on **another** machine, do not lock Host IP to `127.0.0.1` (empty or `0.0.0.0`), and SSH to **that machine’s LAN IP**. Evaluation is usually on the same Mac as VirtualBox, so `127.0.0.1` is enough.
+To reach a VM on **another** machine: do not lock Host IP to `127.0.0.1` (empty or `0.0.0.0`), then SSH to **that machine’s LAN IP** and the **host** port. Evaluation is usually on the same Mac as VirtualBox, so `127.0.0.1` is enough. Defense wording: Evaluation → SSH.
 
 Copy files the same way (`scp` uses **`-P`** for the port):
 
@@ -208,12 +208,12 @@ Do not `nano /etc/sudoers`. Use **`visudo`** (syntax check on save). Log dir:
 ```bash
 sudo mkdir -p /var/log/sudo
 sudo visudo
-# or: sudo visudo -f /etc/sudoers.d/yourfile
+# or: sudo visudo -f /etc/sudoers.d/NAME   # NAME from: sudo ls /etc/sudoers.d/
 ```
 
 Subject **Defaults**: `passwd_tries=3`, custom `badpass_message`, `requiretty`, `secure_path=…`, `log_input,log_output`, `iolog_dir="/var/log/sudo"`. Example block: [sudo](#sudo).
 
-`secure_path` stops sudo from running a fake binary from your home. `requiretty` needs a real terminal. Test a wrong password three times; then `ls -l /var/log/sudo/` must grow after a real `sudo` command.
+`secure_path` stops sudo from running a fake binary from your home. **TTY** = your current login session (VirtualBox window or SSH). `requiretty` = sudo only from that. Test a wrong password three times; then `ls -l /var/log/sudo/` must grow after a real `sudo` command.
 
 </details>
 
@@ -521,6 +521,8 @@ sudo nano /etc/ufw/ufw.conf      # ENABLED=yes (on at boot)
 sudo nano /etc/ufw/user.rules    # the allow/deny rules (look for 4242)
 ```
 
+**`verbose`** here is just “more detail,” not a second program. `ufw status` prints the rule table. `ufw status verbose` also prints **Status** (active/inactive), **Logging**, **Default** incoming/outgoing/routed, and **New profiles**. That is why the evaluation uses `verbose`: you prove the firewall is on and the defaults, not only that 4242 is listed.
+
 Set it up (already done on the VM):
 
 ```bash
@@ -548,6 +550,8 @@ sudo ufw status
 <summary>SSH</summary>
 
 
+
+**What SSH is:** **S**ecure **Sh**ell — remote terminal over the network, encrypted (not telnet). Client on the Mac (`ssh`), server on Debian (`openssh-server`, service name `ssh` / process `sshd`). Port **4242** instead of 22. `PermitRootLogin no` = no root **over the network**; local console root is still OK. Defense wording: Evaluation → SSH.
 
 Config file: `/etc/ssh/sshd_config`. Needed lines: `Port 4242` and `PermitRootLogin no`.
 
@@ -582,13 +586,15 @@ Ignore `127.0.0.1` (localhost). The VM address is often `10.0.2.15` (VirtualBox 
 ssh casgarna@127.0.0.1 -p 4242    # 127.0.0.1 = your Mac, forwarded into the VM
 ```
 
-**`localhost` / `127.0.0.1` with NAT** means the **host PC**. VirtualBox forwards a host port into guest **4242**. SSH inside the VM stays on 4242. Only if **host** port 4242 is already taken, forward a free host port (example `2222`) → guest `4242` and connect with that host port. That is a host/VirtualBox setting, not a change inside Debian.
+**`localhost` / `127.0.0.1` with NAT** means the **host PC**. VirtualBox forwards a **host** port into **guest 4242**. SSH inside Debian stays on 4242. If the **host** already uses 4242 (42 cluster), use host **4243** → guest **4242** and `ssh … -p 4243`. That is translation on the hypervisor, not a change of the subject port. Defense wording: Evaluation → SSH.
+
+To SSH from a **different** computer than the one running VirtualBox: Host IP empty or `0.0.0.0`, then `ssh casgarna@LAN_IP_OF_THAT_PC -p <host_port>`. Eval is usually local, so `127.0.0.1` is enough.
 
 If SSH complains that the host key changed after you change the forwarded port:
 
 ```bash
 ssh-keygen -R "[127.0.0.1]:4242"
-ssh-keygen -R "[localhost]:2222"
+ssh-keygen -R "[127.0.0.1]:4243"
 ```
 
 **Password vs SSH key:** the subject allows either. A key pair is a **private** key (stays on your machine) and a **public** key (on the server). Login proves you hold the private key; the private key is never sent. Stronger than a guessable password. This project can use a normal password.
@@ -688,26 +694,30 @@ Disadvantages:
 
 
 
-Do **not** edit `/etc/sudoers` with `nano` (a syntax error can lock sudo). Use `visudo`. Extra rules usually live in `/etc/sudoers.d/`.
+Do **not** edit `/etc/sudoers` with `nano` (a syntax error can lock sudo). Use **`visudo`**. Extra rules often live in **`/etc/sudoers.d/`** (one small file per drop-in). There is no file literally named `yourfile` — that was a placeholder.
 
 ```bash
-sudo ls /etc/sudoers.d/
-sudo visudo                           # main file /etc/sudoers
-sudo visudo -f /etc/sudoers.d/yourfile
-sudo cat /etc/sudoers.d/*             # read-only view of custom rules
-sudo ls -l /var/log/sudo/             # sudo I/O logs must exist
+sudo ls /etc/sudoers.d/              # real names on this VM (e.g. README leftover + your drop-in)
+sudo visudo                          # main file /etc/sudoers
+sudo visudo -f /etc/sudoers.d/NAME   # NAME = what ls just showed (not the word "yourfile")
+sudo cat /etc/sudoers.d/*            # read-only view of drop-in rules
+sudo ls -l /var/log/sudo/            # sudo I/O logs must exist
 ```
 
-`sudo` is installed; user `casgarna` is in group `sudo`. Extra rules:
+**TTY** = your current login session: the VirtualBox window or SSH.
 
-- max **3** authentication attempts (`passwd_tries=3`)
-- **custom message** on wrong password (`badpass_message="..."`)
-- log **inputs and outputs** under `/var/log/sudo/` (`iolog_dir`, `log_input`, `log_output`)
-- **`requiretty`** (must have a real TTY)
-- **restricted `secure_path`**, e.g.  
-  `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin`
+`sudo` is installed; user `casgarna` is in group `sudo`. Subject **Defaults** (what they mean):
 
-Example block (edit only with `visudo`; put it in `/etc/sudoers.d/`):
+| Setting | What it does |
+|---|---|
+| `passwd_tries=3` | After **3** wrong sudo passwords, sudo gives up for that command. Slows guessing. |
+| `badpass_message="…"` | Text shown on a **wrong** sudo password (you choose the sentence). Proves the policy is yours, not the default. |
+| `log_input` + `log_output` | For **that sudo command only**: record what was typed on stdin (`log_input`) and what the command printed (`log_output`). Not the whole SSH session. |
+| `iolog_dir="/var/log/sudo"` | Folder for those I/O recordings. Must exist (`mkdir -p`). After `sudo echo hello`, new files/dirs appear here. |
+| `requiretty` | **TTY** = your current login session: the VirtualBox window or SSH. `requiretty` = sudo only from that. A process with no login (no console, no SSH) is refused. |
+| `secure_path="…"` | When sudo runs a command, it searches **only** these directories for the program (example: `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin`). A fake `ls` in your home is not used. |
+
+Example block (edit only with `visudo`):
 
 ```
 Defaults        passwd_tries=3
@@ -719,19 +729,40 @@ Defaults        requiretty
 Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
 ```
 
-`log_input` / `log_output` record **that sudo command**: what was typed on stdin and what the command printed, not the whole SSH login. Files go under `/var/log/sudo/` (`iolog_dir`). `secure_path` stops sudo from running a fake `ls` from your home. `requiretty` needs a real terminal. Create the log dir if needed: `sudo mkdir -p /var/log/sudo`.
+`logfile=` is an extra text log of *that* sudo was used; `iolog_dir` is the detailed input/output capture the subject asks for. Create the dir: `sudo mkdir -p /var/log/sudo`.
 
-This block is the **subject’s rules**. On the VM they live in `/etc/sudoers.d/` (edit with `visudo`).
+This block is the **subject’s rules**. On the VM they live in `/etc/sudoers` and/or a file under `/etc/sudoers.d/` (edit only with `visudo`).
 
 **What sudo is for (defense):** you stay a normal user and elevate **one command** instead of logging in as root all day. Example: `sudo apt update` vs `su -` (full root shell). Logs show who did what. Restricted `secure_path` stops a fake `ls` in your home from running as root. `requiretty` blocks sudo from some detached scripts. Limited tries slow brute force.
 
-Show that a sudo command is logged:
+**Prove the logs (evaluation sheet):**
+
+1. Folder exists and is not empty: `sudo ls -l /var/log/sudo/`
+2. Open what is inside: `sudo ls -lR /var/log/sudo/` and `sudo cat` / `sudo tail` on a log file (or `logfile=/var/log/sudo/sudo.log` if you set that). You should see **past sudo commands**.
+3. Run **one new** sudo command, then list the folder **again**. A new file or directory should appear, or the log file should be longer.
 
 ```bash
-ls -l /var/log/sudo/
-sudo cat /var/log/sudo/*          # or ls the latest file in there
-sudo echo test                    # then check the log again: it should grow / get a new entry
+sudo ls -l /var/log/sudo/
+sudo sudoreplay -d /var/log/sudo/ -l | tail -n 10
+sudo ls -lR /var/log/sudo/ | grep '^d' | wc -l
+sudo echo hello
+sudo ls -lR /var/log/sudo/ | grep '^d' | wc -l    # e.g. 58 → 60
 ```
+
+`echo hello` is not special. Any sudo command works (`sudo ls /root`). You run it so the evaluator **sees the folder change**. Reading `/var/log/sudo/` usually needs `sudo` too.
+
+**If `ls` still looks the same:** `total 8` is **disk blocks**, not “8 log lines”. Owner `root root` is normal.
+
+I/O logs (`iolog_dir`) are **nested folders** (`00/00/01/…`), not one new file in the top directory. The top `ls -l` often stays `total 8` with the same `00` directory.
+
+```bash
+sudo ls -lt /var/log/sudo/           # newest first (top folder)
+sudo find /var/log/sudo -mmin -2     # files/dirs changed in the last 2 minutes
+sudo ls -lt /var/log/sudo/00/00/     # last numbered session folder is the new one
+sudo cat /var/log/sudo/sudo.log      # only if logfile= is set
+```
+
+After `sudo echo hello`, `find -mmin -2` should list a new session dir and files like `log`, `stdout` (stdout may contain `hello`).
 
 </details>
 
@@ -911,6 +942,7 @@ Debian often uses `adduser` instead of `useradd` (interactive, applies `login.de
 | Command | What it does |
 |---|---|
 | `systemctl status ssh` | SSH service status |
+| `ufw status verbose` | rules plus Status, Logging, Default policies |
 | `ufw status numbered` | firewall rules with numbers |
 | `ufw allow <port>` | open a port |
 | `ufw deny <port>` | deny a port |
@@ -1101,7 +1133,14 @@ Cron has **five time fields**, then the command: **minute hour day-of-month mont
 
 Put the script in a fixed path (often `/usr/local/bin/monitoring.sh`) and `sudo chmod +x` it. Root crontab: `sudo crontab -e`.
 
-The subject requires the script to be **interruptible without modifying the file**. That means `monitoring.sh` stays the same (path, permissions, content). The **crontab** is the schedule, not the script. Commenting those lines with `#` is how the job is stopped.
+The subject requires the script to be **interruptible without modifying the file**. Two different things:
+
+| File | What it is | Eval “do not modify” |
+|---|---|---|
+| `/usr/local/bin/monitoring.sh` | The **script** (the program that prints `wall`) | Must stay: same path, same rights, same content. **No** `#` inside this file for the stop test. |
+| Root **crontab** (`sudo crontab -e`) | The **schedule** (“run that path every 10 min and at boot”) | **This** is what you comment. `#` here does not change the script. |
+
+Commenting crontab lines with `#` is how the job is stopped. Cron simply never launches `monitoring.sh` after reboot. The script still exists, still executable, still the same bytes.
 
 `systemctl stop cron` only stops the daemon until the next boot. `cron` is enabled by default, so after `reboot` the `@reboot` and `*/10` entries run again and `wall` returns.
 
@@ -1134,6 +1173,8 @@ sudo crontab -e                       # uncomment both lines when done
 ```
 
 `wall` writes a broadcast to every logged-in TTY, so the banner appears on the console and over SSH.
+
+**Run by hand:** yes — `sudo /usr/local/bin/monitoring.sh`. It does **not** `echo` to your prompt. It only **`wall`s**. Wait a few seconds (`journalctl` / `top` can be slow). Then a broadcast like `Broadcast message from root@…` plus the `#Architecture:` block. If the prompt comes back with **no** banner: `mesg y` (this TTY was refusing messages), or you are looking at the wrong window (VirtualBox vs SSH). Use the **full path**; `sudo monitoring.sh` fails if the file is not on sudo’s `secure_path`. Need `chmod +x`. Running as your user (no sudo) still `wall`s, but the sudo count from `journalctl` can be empty/wrong.
 
 </details>
 
@@ -1383,7 +1424,52 @@ sudo nano /etc/hosts                        # 127.0.1.1 casgarna42
 
 **Partitions:** `lsblk` (and `sudo pvs; sudo vgs; sudo lvs`). Compare to the example in the subject. Sizes in the PDF are examples. [Encrypted LVM](#encrypted-lvm).
 
-**What is LVM?** PV (disk/LUKS) → VG (pool) → LV (what you mount). Encryption (LUKS) sits under LVM. Useful: grow volumes later without repartitioning the whole disk.
+**What you see in `lsblk` (this VM)**
+
+`lsblk` is a **tree**: indented = “lives inside the line above”. Columns (default `lsblk`):
+
+| Column | Meaning |
+|---|---|
+| **NAME** | Device name (without `/dev/`) |
+| **MAJ:MIN** | Kernel device numbers (ignore in the defense) |
+| **RM** | Removable? `0` = fixed disk, `1` = CD/USB |
+| **SIZE** | Size of that piece |
+| **RO** | `0` = read/write, `1` = read-only |
+| **TYPE** | `disk`, `part`, `crypt`, `lvm`, `rom` |
+| **MOUNTPOINT(S)** | Where it is [mounted](#mount) (`/`, `/home`, `[SWAP]`, …) |
+
+This machine (about **12G** total; names/sizes are yours, not the PDF examples):
+
+```
+NAME                      SIZE   TYPE   MOUNTPOINT
+sda                       12G    disk
+├─sda1                    791M   part   /boot
+├─sda2                    1K     part
+└─sda5                    11.2G  part
+  └─sda5_crypt            11.2G  crypt
+    ├─casgarna42--vg-root 7.1G   lvm    /
+    ├─casgarna42--vg-swap_1 620M lvm    [SWAP]
+    └─casgarna42--vg-home 3.4G   lvm    /home
+sr0                       1024M  rom
+```
+
+**`sda` / `sda1` / `sda5`:** [naming](#sda) — `sd` = SCSI-style disk, `a` = first disk, numbers = partitions.
+
+Line by line:
+
+1. **`sda` (12G, `disk`)** — the whole virtual hard disk.
+2. **`sda1` (791M, `part`, `/boot`)** — unencrypted **boot** partition so the system can start and then ask for the LUKS passphrase.
+3. **`sda2` (1K, `part`)** — **extended** partition: a tiny MBR “frame”, not a filesystem. On old-style (MS-DOS) partition tables you only get four *primary* slots. Extra space is wrapped in an extended partition; real data then sits in **logical** partitions inside it (`sda5`, `sda6`, … — numbering starts at 5).
+4. **`sda5` (11.2G, `part`)** — that logical partition; almost all remaining space. This is the **LUKS** container (locked until boot passphrase).
+5. **`sda5_crypt` (11.2G, `crypt`)** — unlocked LUKS “vault” on `sda5`. LVM’s **PV** sits here.
+6. **`casgarna42--vg-root` (7.1G, `lvm`, `/`)** — LV for the OS. The name is volume group `casgarna42-vg` + LV `root` (`--` is how `lsblk` prints a `-` in the name).
+7. **`casgarna42--vg-swap_1` (620M, `lvm`, `[SWAP]`)** — swap (overflow for RAM), not a folder.
+8. **`casgarna42--vg-home` (3.4G, `lvm`, `/home`)** — user files (`casgarna`, …).
+9. **`sr0` (1024M, `rom`)** — virtual CD/DVD (Debian installer ISO). **RM=1**. Not part of LVM.
+
+`pvs` / `vgs` / `lvs` list the same LVM layer: one PV (`sda5_crypt`), one VG (`casgarna42-vg`), three LVs (root, swap, home). That is more than the subject’s **minimum of two** encrypted LVs.
+
+**What is LVM?** [PV](#lvm) (disk or unlocked LUKS) → VG (pool) → LV (what you [mount](#mount)). [LUKS](#luks) sits **under** LVM. Useful: grow an LV later without slicing the whole disk again.
 
 </details>
 
@@ -1397,14 +1483,40 @@ Talk + rules: [sudo](#sudo). Installed / logs: [Check (VM)](#check-vm).
 ```bash
 dpkg -l | grep sudo
 sudo adduser evaluser sudo
-sudo visudo -f /etc/sudoers.d/yourfile      # your real filename
-ls -l /var/log/sudo/                        # folder + at least one file
-sudo echo hello                             # then check the log grew
+sudo visudo                             # or: sudo visudo -f /etc/sudoers.d/NAME  (NAME from ls)
+
+# 1) folder exists (needs sudo to read)
+sudo ls -l /var/log/sudo/
+
+# 2) history: last 10 I/O sessions
+sudo sudoreplay -d /var/log/sudo/ -l | tail -n 10
+
+# 3) count session dirs, run sudo, count again (expect +2: input + output)
+sudo ls -lR /var/log/sudo/ | grep '^d' | wc -l
+sudo echo hello
+sudo ls -lR /var/log/sudo/ | grep '^d' | wc -l
+sudo sudoreplay -d /var/log/sudo/ -l | tail -n 3
 ```
+
+`sudoreplay -l` lists logged sudo sessions (`-d` = log directory). `tail -n 10` = last 10 lines.
+
+`grep '^d'` keeps only **directory** lines from `ls -lR`. `wc -l` counts them. One sudo often adds **two** dirs (input + output), e.g. 58 → 60.
+
+`echo hello` is only a dummy sudo so the count / list changes. Full log notes: [sudo](#sudo).
 
 **Value of sudo:** stay a normal user; elevate **one** command (`sudo apt update`) instead of `su -` all day; logs who did what.
 
-**Subject rules to show:** `passwd_tries=3`, custom `badpass_message`, `log_input`/`log_output` + `iolog_dir=/var/log/sudo`, `requiretty`, restricted `secure_path`.
+**Subject rules** (open them with `visudo`; meanings: [sudo](#sudo)):
+
+**TTY** = your current login session: the VirtualBox window or SSH.
+
+| Setting | In one sentence |
+|---|---|
+| `passwd_tries=3` | Only 3 wrong passwords per sudo command |
+| `badpass_message` | Your custom error text |
+| `log_input` / `log_output` + `iolog_dir=/var/log/sudo` | Record that command’s keyboard + output into `/var/log/sudo/` |
+| `requiretty` | sudo only from a TTY (see the line above) |
+| `secure_path` | sudo only looks for programs in that safe PATH |
 
 </details>
 
@@ -1435,7 +1547,15 @@ sudo ufw status                             # 8080 gone, 4242 still there
 
 Talk + how to connect: [SSH](#ssh). Status/port: [Check (VM)](#check-vm).
 
-**What SSH is:** encrypted remote shell. Value: no GUI/telnet on the wire. Port **4242** instead of 22 = less noisy scanning. `PermitRootLogin no` = a guessed root password cannot get a **remote** shell (root console locally is still OK).
+**What it actually does:** the VM sits there with `sshd` **listening** on port **4242**. On the Mac you run `ssh casgarna@127.0.0.1 -p 4242`. That is a login request: username + password (or key). If it matches, Debian gives you a **normal shell** — same kind of prompt as in the VirtualBox window, but the window can stay closed. Every keystroke and every command output travels **encrypted** through that connection. Close the SSH client (`exit`) and that remote session ends. That is the whole job: **remote login**, not a website, not file sharing by itself (`scp`/`sftp` exist but you do not need them for the eval).
+
+**What SSH is (defense):** **S**ecure **Sh**ell — a remote **terminal** over the network with **encryption**. You type on the evaluator’s Mac; Debian runs the commands. Without SSH you only have the VirtualBox window (or old **telnet**, which sent passwords in clear text).
+
+Two programs: **client** on the host (`ssh user@host -p 4242`) and **server** on the VM (`openssh-server`). Debian’s **service** name is `ssh`; the listening process is often called `sshd`. Config is read at start (`/etc/ssh/sshd_config`), so after an edit you `systemctl restart ssh`.
+
+Default port is **22**. Everyone scans 22. This subject uses **4242**, so a random scan of 22 does not find you. UFW must allow **4242/tcp** or the client never gets in. **`PermitRootLogin no`:** even if someone knows the root password, they cannot open a **remote** root shell. Local `su` / console as root in the VM window is still allowed. During eval they create a **new user** and SSH as that user; `ssh root@…` must fail.
+
+Password login is enough here. An **SSH key** (optional) is a private key on the client and a public key on the server — the private key never travels on the wire.
 
 ```bash
 dpkg -l | grep openssh-server
@@ -1444,7 +1564,38 @@ ssh evaluser@<VM_IP> -p 4242                # from host: must work
 ssh root@<VM_IP> -p 4242                    # must fail
 ```
 
-NAT: often `ssh casgarna@127.0.0.1 -p 4242` with VirtualBox port forwarding — see [SSH](#ssh).
+NAT: often `ssh casgarna@127.0.0.1 -p 4242` with VirtualBox port forwarding.
+
+**Host port 4243 (cluster PCs) — this is OK.** VirtualBox **NAT** does not give the Mac a usable guest IP (`10.0.2.15`). It **forwards**: a port on the **Mac** is mapped to a port **inside the VM**. Two numbers:
+
+| Where | Port | What it is |
+|---|---|---|
+| **Guest** (Debian) | **4242** | Subject. `sshd_config`, `ufw`, `ss` / `systemctl status ssh`. Never change this for a busy host port. |
+| **Host** (Mac / cluster PC) | **4242** or **4243** | Only VirtualBox’s “front door”. Not Debian. |
+
+If `ssh … -p 4242` fails because **4242 is already taken on the host** (common on 42 pool Macs: leftover session, another VM), set the forwarding to **Host 4243 → Guest 4242**. Then:
+
+```bash
+ssh casgarna@127.0.0.1 -p 4243
+```
+
+VirtualBox **translates** that to guest **4242**. Packets still arrive on 4242 inside the VM. Proof for the evaluator (run **in the VM**):
+
+```bash
+sudo grep -E '^Port' /etc/ssh/sshd_config     # 4242
+sudo systemctl status ssh                     # listening on 0.0.0.0 port 4242
+sudo ufw status                               # 4242 ALLOW
+```
+
+The subject grades the **guest**. Host 4243 is a hypervisor workaround, not a config cheat.
+
+**VM on another computer (LAN):** `Host IP` `127.0.0.1` in the forwarding rule means **only that Mac** can use the forward. Leave Host IP **empty** (or `0.0.0.0`) so other machines on the network can connect. From your Mac, SSH to the **LAN IP of the PC that runs VirtualBox**, same host port as in the rule (`4242` or `4243`):
+
+```bash
+ssh casgarna@IP_OF_THE_CLUSTER_PC -p 4243
+```
+
+Evaluation at 42 is usually **on the same Mac as VirtualBox**, so `127.0.0.1` is enough.
 
 </details>
 
@@ -1457,16 +1608,18 @@ Full fields, cron, interrupt: [`monitoring.sh`](#monitoringsh). Show the file: `
 
 | Scale question | Answer |
 |---|---|
-| How does the script work? | Bash: collect stats (`uname`, `/proc/cpuinfo`, `free`, `df`, `top`, `who -b`, `lsblk`, `ss`, `users`, IP/MAC, `journalctl` sudo), then `wall` to all TTYs. Table of each line in that section. |
+| How does the script work? | Bash: collect stats, then **`wall`** (not `echo`). Manual test: `sudo /usr/local/bin/monitoring.sh` — wait, then a broadcast. Table of each line in [`monitoring.sh`](#monitoringsh). |
 | What is cron? | Scheduler. Five time fields + command. `@reboot` = at boot. `*/10 * * * *` = every 10 minutes. |
 | How does it run from startup every 10 min? | **Root** crontab (`sudo crontab -e`), two lines, script `chmod +x`. Not a loop inside the script. |
 
-Live tests (`monitoring.sh` is not edited):
+Live tests (`monitoring.sh` is **not** edited — `#` goes in the **crontab**):
 
 1. Every **minute:** `sudo crontab -e` → `*/1`. `wall` values change (`sudo echo x` for sudo count).
-2. **Stop at boot without modifying the script:** comment **both crontab lines** (`#`). `systemctl stop cron` does not persist across reboot. Then `sudo reboot`. Same path, same rights, same content, no `wall`. Uncomment the crontab afterwards.
+2. **Stop at boot without modifying the script** (subject wording): comment **both crontab lines** with `#`. That is **not** the script. Then `sudo reboot`. Evaluator checks: same path, same rights, same content of `monitoring.sh`, and **no** `wall`. Uncomment the crontab afterwards.
 
-The script is started by **root’s crontab**, not by a loop in the file. Commenting those two lines stops `wall` after boot; the script file is unchanged.
+**Why `#` is allowed:** the subject forbids changing **the script file** (`/usr/local/bin/monitoring.sh`: bytes, chmod, location). Cron is a **separate** schedule (root’s crontab, `sudo crontab -e` / `sudo crontab -l`). `#` there means “do not run this line.” The file `monitoring.sh` is untouched. That is exactly how you “make the script stop running when the server has started up, but without modifying the script itself.”
+
+`systemctl stop cron` does **not** count: after reboot, cron starts again and `@reboot` / `*/10` fire. Do not `chmod -x` or edit the `.sh` file for this test.
 
 </details>
 
@@ -1557,24 +1710,25 @@ Short explanations of the terms used in this project (useful for the defense).
 | **`aptitude`** | Another Debian frontend (CLI + TUI). Better at **solving dependency conflicts** (can propose several solutions). Same `.deb` repos as `apt`. |
 | **`dpkg`** | Low-level Debian tool that actually installs/removes a `.deb`. `apt` calls `dpkg`. |
 | **`dnf`** | Rocky/RHEL package manager (successor of `yum`). Installs `.rpm` packages, resolves dependencies. |
-| <a id="ufw"></a>**UFW** | Uncomplicated Firewall (Debian). Simple allow/deny commands. A **frontend**: it writes [iptables](#iptables) / [nftables](#nftables) rules for you. This project: only **4242/tcp** open. |
+| <a id="ufw"></a>**UFW** | Uncomplicated Firewall (Debian). Simple allow/deny commands. A **frontend**: it writes [iptables](#iptables) / [nftables](#nftables) rules for you. This project: only **4242/tcp** open. `ufw status verbose` = extra output (active, defaults, logging), not a different firewall. |
 | <a id="firewalld"></a>**firewalld** | Rocky’s firewall program. Same idea as UFW, but with **zones** (public, drop, …) and named services instead of only port numbers. |
 | <a id="iptables"></a>**iptables** | Older tool to tell the Linux kernel which network packets to **accept** or **drop**. Example idea: “allow TCP port 4242, block everything else incoming.” The syntax is verbose. **UFW calls this for you.** |
 | <a id="nftables"></a>**nftables** | Newer replacement for iptables (`nft` command). Same job: kernel packet filter. Many Debian versions use nftables **under** UFW. You still use `ufw`, not `nft`, in this project. |
 | **packet / packet filter** | A **packet** is a small chunk of network data. A **packet filter** looks at each chunk (port, protocol, direction) and allows or blocks it. That is what a firewall does. |
 | **frontend** | A simpler program on top of a harder one. UFW is a frontend for iptables/nftables: short command in, kernel rule out. |
-| **NAT / port forwarding** | VirtualBox default network: the guest (often `10.0.2.15`) is not a real LAN IP. The host connects via **localhost** and a forwarded port (host 4242 → guest 4242). |
+| **NAT / port forwarding** | VirtualBox default network: the guest (often `10.0.2.15`) is not a real LAN IP. The host connects via **localhost** and a forwarded port. **Guest** port stays **4242**. **Host** port may be **4243** if 4242 is busy on the Mac — that is only translation, not a Debian change. Host IP `127.0.0.1` = this Mac only; empty / `0.0.0.0` = LAN. |
 | **SSH key pair** | Private key stays on your PC, public key on the server. Login proves you have the private key; it never travels on the wire. Optional here (password is allowed). |
 | **`ucredit=-1`** | PAM credit: a **negative** number means that class is **required** (at least one uppercase). Same idea for `lcredit` / `dcredit`. |
-| **SSH** | Secure Shell: encrypted remote login. Here: port **4242**, **no root login**. Client: `ssh user@ip -p 4242`. |
-| **OpenSSH** | The SSH server/client used on Debian (`sshd`). Config: `/etc/ssh/sshd_config`. |
+| <a id="ssh-lexicon"></a>**SSH** | **S**ecure **Sh**ell: encrypted remote terminal. Client on your Mac (`ssh user@host -p 4242`), server on Debian (`openssh-server`). Here: port **4242** (not 22), **no root login**. Longer: [SSH](#ssh). |
+| **OpenSSH** | The SSH software on Debian. Server process often called `sshd`. Config: `/etc/ssh/sshd_config`. Service name: `ssh`. |
 | **sudo** | Run one command as another user (usually root) without logging in as root. Config in `/etc/sudoers` and `/etc/sudoers.d/`. |
-| **TTY** | A real text terminal (console or SSH session). `requiretty` means sudo only works if you have one, not from a detached script without a terminal. |
+| **TTY** | **TTY** = your current login session: the VirtualBox window or SSH. `requiretty` = sudo only from that session. |
 | **PAM** | Pluggable Authentication Modules. Hooks used for login/password rules (`pam_pwquality` = password complexity). |
 | **password aging** | How long a password may live before it must be changed. Not complexity (length, A-z, digit): that is PAM/`pwquality`. Aging is: max 30 days, min 2 days between changes, warning 7 days before expiry. Set in `/etc/login.defs` (`PASS_MAX_DAYS`, `PASS_MIN_DAYS`, `PASS_WARN_AGE`). |
 | **`chage`** | **ch**ange **age**. Show or set a user’s aging. `sudo chage -l casgarna` lists last change, min/max days, expiry, warning. |
-| <a id="lvm"></a>**LVM** | Logical Volume Manager. Disk is split into **PV → VG → LV**, so you can resize volumes later. This project: **encrypted** LVM, at least two LVs. |
-| **PV / VG / LV** | Physical Volume (real disk/partition), Volume Group (pool), Logical Volume (the “partition” you format, e.g. `/`, `/home`, swap). |
+| <a id="sda"></a>**`sda` / `sda1` / `sda5`** | Linux disk names under `/dev/`. **`sd`** = SCSI-style disk (VirtualBox). **`a`** = first disk. **`sda1`** = first partition (here `/boot`). **`sda2`** = extended partition (1K frame). **`sda5`** = first *logical* partition inside it (LUKS). `lsblk` omits `/dev/`. |
+| **PV / VG / LV** | Physical Volume (real disk or unlocked LUKS), Volume Group (pool), Logical Volume (the slice you format and [mount](#mount), e.g. `/`, `/home`, swap). |
+| <a id="mount"></a>**mount / mountpoint** | To **mount** is to attach a filesystem to a folder so you can use the files. The **mountpoint** is that folder (`/` , `/boot`, `/home`). Swap is mounted as `[SWAP]`, not as a directory. `lsblk` shows this in **MOUNTPOINT**. `/etc/fstab` lists what to mount at boot. `lsblk` is the live tree; `fstab` is the config. |
 | <a id="luks"></a>**LUKS** | Linux disk encryption. You type a passphrase at boot; then LVM volumes become readable. |
 | **cron** | Scheduler: run a command at a time or interval (`*/10 * * * *` = every 10 minutes, `@reboot` = at startup). How `monitoring.sh` is launched. Stop it here without editing the script. |
 | **`wall`** | Write a message to **all** logged-in terminals. That is how the monitoring banner appears everywhere. |
